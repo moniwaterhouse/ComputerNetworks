@@ -1,7 +1,7 @@
 import socket
 
 # Server configuration variables
-SERVER_IP = 'localhost'
+SERVER_IP = '192.168.0.100'
 SERVER_PORT = 5000
 
 def send_image(image_path):

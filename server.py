@@ -3,7 +3,7 @@ import socket
 from PIL import Image, ImageFilter
 
 # Server configuration variables
-HOST_IP = 'localhost'
+HOST_IP = '0.0.0.0'
 PORT = 5000
 
 # This function applies the filter to the image that has been received by the client
@@ -25,7 +25,8 @@ def receive_data(client):
     image = Image.open(io.BytesIO(client_data))
 
 
-    new_image = apply_filter(image)
+    #new_image = apply_filter(image)
+    new_image = image
 
     # Converts the new image to bytes to send it to the client again
     new_image_data = io.BytesIO()

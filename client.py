@@ -1,42 +1,52 @@
+import cv2
 import socket
+import pickle
+import struct
 
-# Server configuration variables
-SERVER_IP = '192.168.0.100'
-SERVER_PORT = 5000
+# Create a client socket
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-def send_image(image_path):
-    # Reads the image file
-    with open(image_path, 'rb') as f:
-        image_data = f.read()
+# Set up server host and port
+host = 'localhost'  # Replace with your server IP address if needed
+port = 8000  # Choose the same port number used by the server
 
-    # CreateS a TCP socket
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+# Connect to the server
+client_socket.connect((host, port))
+print('Connected to server:', (host, port))
 
-    # ConnectS to the server
-    client.connect((SERVER_IP, SERVER_PORT))
-    print("Connected to server at IP: ", SERVER_IP)
+# Read the image file
+image_path = 'puppy.jpg'  # Replace with the path to your image
+image = cv2.imread(image_path)
 
-    # SendS the image data to the server
-    client.sendall(image_data)
+# Serialize the image
+data = pickle.dumps(image)
 
-    # ReceiveS the filtered image from the server
-    filtered_image_data = b''
-    while True:
-        chunk = client.recv(2048)
-        filtered_image_data += chunk
-        if len(chunk) < 2048:
-            break
-        
+# Send the image size to the server
+client_socket.sendall(struct.pack("Q", len(data)) + data)
 
-    # SaveS the filtered image
-    with open('new_image.jpg', 'wb') as f:
-        f.write(filtered_image_data)
+# Receive the processed image from the server
+data = b""
+payload_size = struct.calcsize("Q")
+while len(data) < payload_size:
+    data += client_socket.recv(4*1024)
+packed_msg_size = data[:payload_size]
+data = data[payload_size:]
+msg_size = struct.unpack("Q", packed_msg_size)[0]
 
-    print("Filter added to the image successfully")
+# Receive the processed image data from the server
+while len(data) < msg_size:
+    data += client_socket.recv(4*1024)
+frame_data = data[:msg_size]
+data = data[msg_size:]
 
-    # Close the client socket
-    client.close()
+# Deserialize the processed image
+processed_image = pickle.loads(frame_data)
 
-if __name__ == '__main__':
-    image_path = 'puppy2.jpg' 
-    send_image(image_path)
+# Display the processed image
+cv2.imshow("Processed Image", processed_image)
+cv2.waitKey(0)
+
+# Save the processed image
+output_path = 'new_image.jpg'  # Replace with the desired output path and file name
+cv2.imwrite(output_path, processed_image)
+

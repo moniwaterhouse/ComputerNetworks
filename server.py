@@ -1,63 +1,49 @@
-import io
+import cv2
 import socket
-from PIL import Image, ImageFilter
+import pickle
+import struct
 
-# Server configuration variables
-HOST_IP = '0.0.0.0'
-PORT = 5000
+# Create a server socket
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-# This function applies the filter to the image that has been received by the client
-def apply_filter(image):
-    new_image = image.filter(ImageFilter.EDGE_ENHANCE_MORE)
-    return new_image
+# Set up server host and port
+host = 'localhost'  # Replace with your server IP address if needed
+port = 8000  # Choose a suitable port number
 
-# Receives the image data from the client
-def receive_data(client):
-    client_data = b''
-    while True:
-        chunk = client.recv(2048)
-        client_data += chunk
-        if len(chunk) < 2048:
-            break
-        
+# Bind the server socket to the host and port
+server_socket.bind((host, port))
 
-    # Creates a pillow image from the received image data in form of bytes
-    image = Image.open(io.BytesIO(client_data))
+# Listen for incoming connections
+server_socket.listen(5)
+print('Server listening on {}:{}'.format(host, port))
 
+# Accept a client connection
+client_socket, client_address = server_socket.accept()
+print('Connected to client:', client_address)
 
-    #new_image = apply_filter(image)
-    new_image = image
+# Receive the image size from the client
+data = b""
+payload_size = struct.calcsize("Q")
+while len(data) < payload_size:
+    data += client_socket.recv(4*1024)
+packed_msg_size = data[:payload_size]
+data = data[payload_size:]
+msg_size = struct.unpack("Q", packed_msg_size)[0]
 
-    # Converts the new image to bytes to send it to the client again
-    new_image_data = io.BytesIO()
-    new_image.save(new_image_data, format='JPEG')
-    new_image_bytes = new_image_data.getvalue()
+# Receive the image data from the client
+while len(data) < msg_size:
+    data += client_socket.recv(4*1024)
+frame_data = data[:msg_size]
+data = data[msg_size:]
 
-    # Send the new image back to the client
-    client.sendall(new_image_bytes)
+# Deserialize and process the image
+frame = pickle.loads(frame_data)
+# Apply the desired image processing/filtering using OpenCV
+# For example, applying a grayscale filter
+gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # Close the client socket
-    client.close()
+# Serialize the processed image
+processed_data = pickle.dumps(gray_frame)
 
-def run():
-    # Creates a server socket
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    # Binds the server socket to the host and port
-    server.bind((HOST_IP, PORT))
-
-    # Listens for incoming connections
-    server.listen()
-
-    print("The server is listening on IP: ", HOST_IP)
-
-    while True:
-        # Accepts a client connection
-        client_socket, client_address = server.accept()
-        print("Accepted connection from", client_address[0])
-
-        # Handle the client connection
-        receive_data(client_socket)
-
-if __name__ == '__main__':
-    run()
+# Send the processed image back to the client
+client_socket.sendall(struct.pack("Q", len(processed_data)) + processed_data)

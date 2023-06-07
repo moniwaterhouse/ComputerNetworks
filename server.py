@@ -1,62 +1,70 @@
-import io
+import cv2
 import socket
-from PIL import Image, ImageFilter
+import pickle
+import struct
 
-# Server configuration variables
-HOST_IP = 'localhost'
-PORT = 5000
+from common import serialize_img, deserialize_img
 
-# This function applies the filter to the image that has been received by the client
-def apply_filter(image):
-    new_image = image.filter(ImageFilter.EDGE_ENHANCE_MORE)
-    return new_image
+class Server():
+    def __init__(self, host_addr='localhost', port=8000):
+        print('SERVER: Creating server with Host: {}, Port: {}'.format(host_addr, port))
+        self.host = host_addr
+        self.port = port
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind((self.host, self.port))
 
-# Receives the image data from the client
-def receive_data(client):
-    client_data = b''
-    while True:
-        chunk = client.recv(2048)
-        client_data += chunk
-        if len(chunk) < 2048:
-            break
-        
+        self.client_socket = None
+        self.client_addr = None
 
-    # Creates a pillow image from the received image data in form of bytes
-    image = Image.open(io.BytesIO(client_data))
+    def set_host_port(self, host_addr, port):
+        self.host = host_addr
+        self.port = port
 
+    def listen_for_connections(self):
+        print('SERVER: Server listening on {}:{}...'.format(self.host, self.port))
+        self.socket.listen(5)
 
-    new_image = apply_filter(image)
+    def accept_connection(self):
+        self.client_socket, self.client_addr = self.socket.accept()
+        print('SERVER: Connected to client:', self.client_addr)
 
-    # Converts the new image to bytes to send it to the client again
-    new_image_data = io.BytesIO()
-    new_image.save(new_image_data, format='JPEG')
-    new_image_bytes = new_image_data.getvalue()
+    def connect_client(self):
+        self.listen_for_connections()
+        self.accept_connection()
 
-    # Send the new image back to the client
-    client.sendall(new_image_bytes)
+    def close_connection(self):
+        if self.client_socket != None:
+            self.client_socket.close()
 
-    # Close the client socket
-    client.close()
+    def receive_incoming_img(self):
+        print('SERVER: Receiving image to process...')
+        # Receive the image size from the client
+        data = b""
+        payload_size = struct.calcsize("Q")
+        while len(data) < payload_size:
+            data += self.client_socket.recv(4*1024)
+        packed_msg_size = data[:payload_size]
+        data = data[payload_size:]
+        msg_size = struct.unpack("Q", packed_msg_size)[0]
 
-def run():
-    # Creates a server socket
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Receive the image data from the client
+        while len(data) < msg_size:
+            data += self.client_socket.recv(4*1024)
+        frame_data = data[:msg_size]
+        data = data[msg_size:]
+        return frame_data
 
-    # Binds the server socket to the host and port
-    server.bind((HOST_IP, PORT))
+    def apply_grayscale_filter(self, deser_img):
+        filtered_img = cv2.cvtColor(deser_img, cv2.COLOR_BGR2GRAY)
+        return filtered_img
 
-    # Listens for incoming connections
-    server.listen()
+    def send_data_client(self, ser_img):
+        self.client_socket.sendall(struct.pack("Q", len(ser_img)) + ser_img)
 
-    print("The server is listening on IP: ", HOST_IP)
-
-    while True:
-        # Accepts a client connection
-        client_socket, client_address = server.accept()
-        print("Accepted connection from", client_address[0])
-
-        # Handle the client connection
-        receive_data(client_socket)
-
-if __name__ == '__main__':
-    run()
+    def run(self):
+        self.connect_client()
+        ser_img = self.receive_incoming_img()
+        deser_img = deserialize_img(ser_img)
+        filtered_img = self.apply_grayscale_filter(deser_img)
+        ser_filtered_img = serialize_img(filtered_img)
+        self.send_data_client(ser_filtered_img)
